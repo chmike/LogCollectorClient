@@ -19,9 +19,17 @@ if __name__ == '__main__':
                   help='number of loops, 0 = forever (default 0)')
   args = parser.parse_args()
   print "args:", args
+
+  args.addresses = ','.join([a for a in [a.strip() for a in args.addresses.split(",")] if a != ""])
+
   try:
-    lch = LogCollectorHandler(args.addresses, "pki/client.key", "pki/client.crt", "pki/rootCA.crt")
+    lch = LogCollectorHandler(args.addresses, "pki/key.pem", "pki/crt.pem", "pki/cas.pem")
     gLogger.addHandler(lch, Logger.DEBUG)
+
+    handler = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    # gLogger.addHandler(handler, logging.DEBUG)
     
     i = 0
     while (args.nbrLoops == 0 or i < args.nbrLoops):
@@ -31,7 +39,7 @@ if __name__ == '__main__':
       gLogger.info('no problem 3')
       gLogger.info('no problem 4')
       gLogger.info('no problem 5')
-      time.sleep(1)
+      #time.sleep(1)
 
   except KeyboardInterrupt:
     print "Shutdown requested...exiting"

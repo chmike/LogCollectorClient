@@ -13,6 +13,7 @@ import threading
 import datetime
 import logging
 import socket
+import select
 import struct
 import time
 import ssl
@@ -30,84 +31,124 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     """
     Initialization of the LogCollectorHandler.
 
-    :param address : string representing one or more LogCollector server addresses obtained from the configuration.
-                     Connection will always be attempted from first to last.
-                     examples: "mardirac.in2p3.fr:3000,toto.in2p3.fr:1456" or "123.45.67.89:3000".
-
-    :param privKey : string file name of the PEM encoded private key of the client.
-    :param certif  : string file name of the PEM encoded certificate of the client.
-    :param caCerts : string file name of the PEM encoded certificate authority list to check the server.
+    :param addresses : list of LoqCollector addresses of the form "<host>:<port>".
+                       Connection will always be attempted from first to last.
+                       examples: "mardirac.in2p3.fr:3000" or "123.45.67.89:3000".
+    :param privKey   : string file name of the PEM encoded private key of the client.
+    :param certif    : string file name of the PEM encoded certificate of the client.
+    :param caCerts   : string file name of the PEM encoded certificate authority list to check the server.
     """
     logging.Handler.__init__(self)
     threading.Thread.__init__(self, name="LogCollectorHandler")
-    self.daemon = True
-    # assign list of non-empty addresses to address
+    self.addrList = [a for a in [a.strip() for a in addresses.split(",")] if a != ""]
     self.addresses = addresses
-    self.address = [a for a in [a.strip() for a in addresses.split(",")] if a != ""]
     self.privKey = privKey
     self.certif  = certif
     self.caCerts = caCerts
-    self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    self.log = gLogger.getSubLogger('LogCollectorBackend')
-    self.queueMsgs = list()
-    self.queueMaxLen = 10000
+    #self.log = gLogger.getSubLogger('LogCollectorBackend')
+    self.sock = None
+    self.msgQueue = list()  # json encoded messages to send
+    self.msgToAck = list()  # json encoded messages waiting acknowledgement
+    self.maxNbrMsg = 10000  # max number of messages in queue + toAck
     self.queueCond = threading.Condition()
+    self.packet = io.BytesIO()
+    self.maxPktLen = 1500
+    self.buf = bytearray(1)
+    self.daemon = True
     self.start()
 
 
   def emit(self, record):
     """
-    Sends the record to the LogCollector server, reconnecting when required.
+    Queue the record for asynchronous sending to the LogCollector.
 
-    The method has no effect if the connection can't be established.
+    The oldest logging message in the queue is dropped when the queue ovorflows.
 
     :params record: log record object
     """
     # skip log records emitted by the LogCollectorBackend to avoid endless loops
-    if hasattr(record, 'customname') and record.customname.endswith('LogCollectorBackend'):
-      return
-
-    jmsg = self.format(record)
-    data = io.BytesIO()
-    data.write("DLCM")
-    data.write(struct.pack("<I",len(jmsg)+1))
-    data.write("J")
-    data.write(jmsg)
-    bmsg = data.getvalue()
+    #if hasattr(record, 'customname') and record.customname.endswith('LogCollectorBackend'):
+    #  return
 
     self.queueCond.acquire()
-    self.queueMsgs.insert(0, bmsg)
-    smsg = None
-    if len(self.queueMsgs) > self.queueMaxLen:
-      smsg = self.queueMsgs.pop().msg
+    self.msgQueue.insert(0, self.format(record))
+    if len(self.msgQueue) + len(self.msgToAck) > self.maxNbrMsg:
+      jmsg = self.msgQueue.pop()
+      #self.log.verbose("queue is full, drop message: "+jmsg)
+    print "emit: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
     self.queueCond.notifyAll()
     self.queueCond.release()
-    if smsg is not None:
-      self.log.verbose("queue is full, drop message", smsg)
 
 
   def run(self):
     while (1):
-      if not self.__connect():
-        self.log.info("failed connecting to {}, waiting 10 seconds".format(self.addresses))
-        time.sleep(10)
-        continue
-      while self.__send():
-        pass
-      self.log.info("connection closed, retry connecting to " + self.addresses)
+      self.queueCond.acquire()
+      while len(self.msgQueue) == 0:
+        self.queueCond.wait(5)  # TODO: check if the 5 sec timeout is needed
 
+      while len(self.msgQueue) > 0 or len(self.msgToAck) > 0:
+        if self.sock == None:
+          self.queueCond.release()
+          self.__connect()  # returns when connected
+          self.queueCond.acquire()
+        
+        input = [self.sock]
+        output = []
+        if self.__fillPacketToSend():
+          output = [self.sock]
+        self.queueCond.release()
+        readable, writable, exceptional = select.select(input, output, input, 5) # TODO wait forever or tmo ?
+        self.queueCond.acquire()
 
+        if exceptional:
+          print "connection closed by logCollector (exceptional)"
+          self.__resetConnection()
+          continue
+
+        if readable:
+          try:
+            acks = self.sock.read()
+            if not acks:
+              print "connection closed by logCollector (read 0)"
+              #self.log.verbose("connection closed by logCollector")
+              self.__resetConnection()
+              continue
+          except Exception as e:
+            print "read acknowledgments failed:" + str(e)
+            #self.log.verbose("read acknowledgments failed:" + str(e))
+            self.__resetConnection()
+            continue
+          for a in acks:
+            self.msgToAck.pop()
+          print "read: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck), "acks len:", len(acks)
+
+        if writable:
+          try:
+            print "send: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
+            self.sock.sendall(self.packet.getvalue())
+            self.__clearPacket()
+          except Exception as e:
+            print "send message failed:" + str(e)
+            #self.log.verbose("send message failed:" + str(e))
+            self.__resetConnection()
+            continue
+
+      
   def __connect(self):
     """
-    Connect to a LogCollector, trying addresses in sequence from first to last. Return True if succeed.
-
-    :return: bool True if succeed, and False if failed to connect to any address in the list.
+    Connect to a LogCollector, trying addresses in sequence from first to last.
+    If failed, wait 10 seconds, and retry. 
+    requires queueCond is NOT acquired to avoid deadlock. 
     """
-    for a in self.address:
-      if self.__connectTo(a):
-        return True
-    return False
-
+    while 1:
+      for a in self.addrList:
+        print "try connecting to", a
+        if self.__connectTo(a):
+          return
+      print "failed connecting to {}, waiting 10 seconds".format(self.addresses)
+      #self.log.info("failed connecting to {}, waiting 10 seconds".format(self.addresses))
+      time.sleep(10)
+ 
 
   def __connectTo(self, address):
     """
@@ -120,7 +161,8 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
       # resolve again in case the IP addresss of srvName changed
       srvIP = socket.gethostbyname(srvName)
     except Exception as e:
-      self.log.warning("open connection failed", str(e))
+      print "open connection failed", str(e)
+      #self.log.warning("open connection failed", str(e))
       return False
 
     self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -128,81 +170,85 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
         ssl_version=ssl.PROTOCOL_SSLv23,
         keyfile=self.privKey,
         certfile=self.certif,
-        cert_reqs=ssl.CERT_REQUIRED, #ssl.CERT_NONE, #ssl.CERT_REQUIRED,
+        cert_reqs=ssl.CERT_NONE, #ssl.CERT_NONE, #ssl.CERT_REQUIRED,
         ca_certs=self.caCerts,
         ciphers="ADH-AES256-SHA256:ALL")
     try:
       self.sock.connect((srvIP, int(port)))
     except Exception as e:
-      self.log.debug("open connection failed", str(e))
+      print "open connection failed", str(e)
+      #self.log.debug("open connection failed", str(e))
       self.__close()
       return False
     self.sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
     self.sock.settimeout(30)
     try:
       version = 0
-      self.sock.send(bytearray([ord('D'), ord('L'), ord('C'), version]))
+      self.sock.send(bytearray('DLC\x00')) # protocol version 0
       resp = self.sock.recv(4)
       while len(resp) < 4:
         resp_data = self.sock.recv(4-len(resp))
         if len(resp_data) == 0:
-          self.log.debug("open connection failed", "connection closed by LogCollector "+address)
+          print "open connection failed", "connection closed by LogCollector "+address
+          #self.log.debug()
           return False
         resp += resp_data
-      if resp == bytearray([ord('D'), ord('L'), ord('C'), ord('S')]):
-        self.log.info("connection open to " + address)
+      if resp == bytearray('DLCS'):
+        print "connection open to " + address
+        #self.log.info("connection open to " + address)
         return True
-      self.log.debug("open connection failed", "invalid handshake from "+address)
+      #self.log.debug("open connection failed", "invalid handshake from "+address)
     except Exception as e:
-      self.log.debug("open connection failed", str(e))
+      print "open connection failed", str(e)
+      #self.log.debug("open connection failed", str(e))
       pass
     self.__close()
     return False
 
 
-  def __send(self):
+  def __fillPacketToSend(self):
     """
-    Try sending data and return True if succeed.
+    Fill packet to send. Requires queueCond is acquired.
 
-    :return: bool True if succeed, otherwise close connection and retur false.
+    :return: bool True if there is data to send in the packet. 
     """
-    # send message
-    self.queueCond.acquire()
-    while len(self.queueMsgs) == 0:
-      self.queueCond.wait()
-    bmsg = self.queueMsgs[-1]
-    self.queueCond.release()
-
-    try:
-      self.sock.sendall(bmsg)
-      self.log.debug("message sent", bmsg[8:])
-    except Exception as e:
-      self.log.verbose("send message failed:", str(e))
-      self.__close()
-      return False
-
-    # get acknowledgement
-    buf = bytearray(1)
-    try:
-      if self.sock.recv_into(buf) == 0:
-        self.log.verbose("connection closed by peer")
-        self.__close()
-        return False
-    except Exception as e:
-      self.log.verbose("receive acknowledment failed:", str(e))
-      self.__close()
-      return False
-    
-    self.queueCond.acquire()
-    if bmsg == self.queueMsgs[-1]:
-      self.queueMsgs.pop()
-    self.queueCond.release()
+    if len(self.msgQueue) == 0:
+      return self.packet.tell() != 0
+    while len(self.msgQueue) > 0 and self.maxPktLen - self.packet.tell() >= 7 + len(self.msgQueue[-1]):
+      jMsg = self.msgQueue[-1]
+      self.packet.write('DLCM')
+      self.packet.write(struct.pack('<I',len(jMsg)+1))
+      self.packet.write('J')
+      self.packet.write(jMsg)
+      self.msgToAck.insert(0, jMsg)
+      self.msgQueue.pop()
+      print "pack: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
     return True
+  
+
+  def __clearPacket(self):
+    self.packet.truncate(0)
+    self.packet.seek(0,0)
+
+
+  def __resetConnection(self):
+    """
+    Append msgToAck messages to msgQueue, and close socket.
+    Requires queueCond is acquired.
+    """
+    self.msgQueue.extend(self.msgToAck)
+    self.msgToAck = list()
+    print "reset: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
+    self.__close()
+
 
   def __close(self):
-    try:
-      self.sock.shutdown(socket.SHUT_RDWR)
-    except:
-      pass
-    self.sock.close()
-      
+    if self.sock != None:
+      try:
+        self.sock.shutdown(socket.SHUT_RDWR)
+      except:
+        pass
+      self.sock.close()
+      self.sock = None
+
+

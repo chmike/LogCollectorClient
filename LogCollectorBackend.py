@@ -236,6 +236,8 @@ class LogCollectorBackend(AbstractBackend):
       self.__minLogLevel = parameters.get('minimumLogLevel', self.__minLogLevel)
       self.__caCertsFile = parameters.get('caCertsFile', self.__caCertsFile)
 
+    self.__LogCollectorAddress = ','.join([a for a in [a.strip() for a in self.__LogCollectorAddress.split(",")] if a != ""])
+
     if self.__caCertsFile == "":
       self.__caCertsFile = getCAsLocation()
       if self.__caCertsFile == False:
