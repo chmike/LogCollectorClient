@@ -74,6 +74,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     self.msgQueue.insert(0, self.format(record))
     if len(self.msgQueue) + len(self.msgToAck) > self.maxNbrMsg:
       jmsg = self.msgQueue.pop()
+      print "queue is full, drop message: "+jmsg
       #self.log.verbose("queue is full, drop message: "+jmsg)
     print "emit: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
     self.queueCond.notifyAll()
@@ -161,7 +162,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
       # resolve again in case the IP addresss of srvName changed
       srvIP = socket.gethostbyname(srvName)
     except Exception as e:
-      print "open connection failed", str(e)
+      print "open connection failed:", str(e)
       #self.log.warning("open connection failed", str(e))
       return False
 
@@ -176,7 +177,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     try:
       self.sock.connect((srvIP, int(port)))
     except Exception as e:
-      print "open connection failed", str(e)
+      print "open connection failed:", str(e)
       #self.log.debug("open connection failed", str(e))
       self.__close()
       return False
@@ -189,7 +190,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
       while len(resp) < 4:
         resp_data = self.sock.recv(4-len(resp))
         if len(resp_data) == 0:
-          print "open connection failed", "connection closed by LogCollector "+address
+          print "open connection failed:", "connection closed by LogCollector "+address
           #self.log.debug()
           return False
         resp += resp_data
@@ -199,7 +200,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
         return True
       #self.log.debug("open connection failed", "invalid handshake from "+address)
     except Exception as e:
-      print "open connection failed", str(e)
+      print "open connection failed:", str(e)
       #self.log.debug("open connection failed", str(e))
       pass
     self.__close()
