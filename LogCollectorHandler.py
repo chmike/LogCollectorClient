@@ -79,11 +79,11 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     self.queueMsgs.insert(0, bmsg)
     smsg = None
     if len(self.queueMsgs) > self.queueMaxLen:
-      smsg = self.queueMsgs.pop().msg
+      smsg = self.queueMsgs.pop()
     self.queueCond.notifyAll()
     self.queueCond.release()
     if smsg is not None:
-      self.log.verbose("queue is full, drop message", smsg)
+      self.log.verbose("queue is full, drop message")
 
 
   def run(self):

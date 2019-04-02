@@ -20,7 +20,7 @@ if __name__ == '__main__':
   args = parser.parse_args()
   print "args:", args
   try:
-    lch = LogCollectorHandler(args.addresses, "pki/client.key", "pki/client.crt", "pki/rootCA.crt")
+    lch = LogCollectorHandler(args.addresses, "pki/key.pem", "pki/crt.pem", "pki/cas.pem")
     gLogger.addHandler(lch, Logger.DEBUG)
     
     i = 0
