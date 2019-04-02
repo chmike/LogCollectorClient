@@ -17,6 +17,8 @@ if __name__ == '__main__':
                   help='list of LogCollector address (default "127.0.0.1:3000")')
   parser.add_argument('-n', dest='nbrLoops', type=int, action='store', default=0,
                   help='number of loops, 0 = forever (default 0)')
+  parser.add_argument('-fast', dest='fast', action='store_true',
+                  help='send messages at full speed')
   args = parser.parse_args()
   print "args:", args
 
@@ -39,7 +41,8 @@ if __name__ == '__main__':
       gLogger.info('no problem 3')
       gLogger.info('no problem 4')
       gLogger.info('no problem 5')
-      #time.sleep(1)
+      if not args.fast:
+        time.sleep(1)
 
   except KeyboardInterrupt:
     print "Shutdown requested...exiting"
