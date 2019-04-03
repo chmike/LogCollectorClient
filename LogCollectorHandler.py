@@ -76,7 +76,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
       jmsg = self.msgQueue.pop()
       print "queue is full, drop message: "+jmsg
       #self.log.verbose("queue is full, drop message: "+jmsg)
-    print "emit: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
+    #print "emit: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
     self.queueCond.notifyAll()
     self.queueCond.release()
 
@@ -121,11 +121,11 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
             continue
           for a in acks:
             self.msgToAck.pop()
-          print "read: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck), "acks len:", len(acks)
+          #print "read: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck), "acks len:", len(acks)
 
         if writable:
           try:
-            print "send: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
+            #print "send: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
             self.sock.sendall(self.packet.getvalue())
             self.__clearPacket()
           except Exception as e:
@@ -223,7 +223,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
       self.packet.write(jMsg)
       self.msgToAck.insert(0, jMsg)
       self.msgQueue.pop()
-      print "pack: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
+      #print "pack: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
     return True
   
 
@@ -239,7 +239,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     """
     self.msgQueue.extend(self.msgToAck)
     self.msgToAck = list()
-    print "reset: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
+    #print "reset: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
     self.__close()
 
 
