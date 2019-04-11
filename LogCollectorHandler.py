@@ -33,7 +33,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
 
     :param addresses : list of LoqCollector addresses of the form "<host>:<port>".
                        Connection will always be attempted from first to last.
-                       examples: "mardirac.in2p3.fr:3000" or "123.45.67.89:3000".
+                       examples: "toto.example.com:3000" or "123.45.67.89:3000".
     :param privKey   : string file name of the PEM encoded private key of the client.
     :param certif    : string file name of the PEM encoded certificate of the client.
     :param caCerts   : string file name of the PEM encoded certificate authority list to check the server.
@@ -82,11 +82,11 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
 
 
   def run(self):
+    self.queueCond.acquire()
     while (1):
-      self.queueCond.acquire()
       while len(self.msgQueue) == 0:
         self.queueCond.wait(5)  # TODO: check if the 5 sec timeout is needed
-
+ 
       while len(self.msgQueue) > 0 or len(self.msgToAck) > 0:
         if self.sock == None:
           self.queueCond.release()
@@ -119,13 +119,14 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
             #self.log.verbose("read acknowledgments failed:" + str(e))
             self.__resetConnection()
             continue
+          #print "read: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck), "acks len:", len(acks), "before pop"
           for a in acks:
             self.msgToAck.pop()
-          #print "read: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck), "acks len:", len(acks)
+          #print "read: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck), "acks len:", len(acks), "after pop"
 
         if writable:
           try:
-            #print "send: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
+            #print "send: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck), "packet len:", len(self.packet.getvalue())
             self.sock.sendall(self.packet.getvalue())
             self.__clearPacket()
           except Exception as e:
@@ -239,6 +240,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     """
     self.msgQueue.extend(self.msgToAck)
     self.msgToAck = list()
+    self.__clearPacket()
     #print "reset: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
     self.__close()
 
