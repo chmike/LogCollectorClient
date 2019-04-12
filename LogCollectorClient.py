@@ -31,7 +31,7 @@ if __name__ == '__main__':
     handler = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
-    # gLogger.addHandler(handler, logging.DEBUG)
+    #gLogger.addHandler(handler, logging.DEBUG)
     
     i = 0
     while (args.nbrLoops == 0 or i < args.nbrLoops):

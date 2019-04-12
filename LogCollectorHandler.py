@@ -45,7 +45,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     self.privKey = privKey
     self.certif  = certif
     self.caCerts = caCerts
-    #self.log = gLogger.getSubLogger('LogCollectorBackend')
+    self.log = gLogger.getSubLogger('LogCollectorBackend')
     self.sock = None
     self.msgQueue = list()  # json encoded messages to send
     self.msgToAck = list()  # json encoded messages waiting acknowledgement
@@ -67,15 +67,15 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     :params record: log record object
     """
     # skip log records emitted by the LogCollectorBackend to avoid endless loops
-    #if hasattr(record, 'customname') and record.customname.endswith('LogCollectorBackend'):
-    #  return
-
+    if hasattr(record, 'customname') and record.customname.endswith('LogCollectorBackend'):
+      return
     self.queueCond.acquire()
     self.msgQueue.insert(0, self.format(record))
     if len(self.msgQueue) + len(self.msgToAck) > self.maxNbrMsg:
       jmsg = self.msgQueue.pop()
-      print "queue is full, drop message: "+jmsg
-      #self.log.verbose("queue is full, drop message: "+jmsg)
+      self.queueCond.release()
+      self.log.verbose("queue is full, drop message: "+jmsg)
+      self.queueCond.acquire()
     #print "emit: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
     self.queueCond.notifyAll()
     self.queueCond.release()
@@ -102,7 +102,9 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
         self.queueCond.acquire()
 
         if exceptional:
-          print "connection closed by logCollector (exceptional)"
+          self.queueCond.release()
+          self.log.verbose("connection closed by logCollector (exceptional)")
+          self.queueCond.acquire()
           self.__resetConnection()
           continue
 
@@ -110,13 +112,15 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
           try:
             acks = self.sock.read()
             if not acks:
-              print "connection closed by logCollector (read 0)"
-              #self.log.verbose("connection closed by logCollector")
+              self.queueCond.release()
+              self.log.verbose("connection closed by logCollector (read 0)")
+              self.queueCond.acquire()
               self.__resetConnection()
               continue
           except Exception as e:
-            print "read acknowledgments failed:" + str(e)
-            #self.log.verbose("read acknowledgments failed:" + str(e))
+            self.queueCond.release()
+            self.log.verbose("read acknowledgments failed:" + str(e))
+            self.queueCond.acquire()
             self.__resetConnection()
             continue
           #print "read: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck), "acks len:", len(acks), "before pop"
@@ -130,8 +134,9 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
             self.sock.sendall(self.packet.getvalue())
             self.__clearPacket()
           except Exception as e:
-            print "send message failed:" + str(e)
-            #self.log.verbose("send message failed:" + str(e))
+            self.queueCond.release()
+            self.log.verbose("send packet of messages failed:" + str(e))
+            self.queueCond.acquire()
             self.__resetConnection()
             continue
 
@@ -143,13 +148,13 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     requires queueCond is NOT acquired to avoid deadlock. 
     """
     while 1:
-      for a in self.addrList:
-        print "try connecting to", a
-        if self.__connectTo(a):
+      for address in self.addrList:
+        self.log.info("try connecting to", address)
+        if self.__connectTo(address):
+          self.log.info("connection open to " + address)
           return
-      print "failed connecting to {}, waiting 10 seconds".format(self.addresses)
-      #self.log.info("failed connecting to {}, waiting 10 seconds".format(self.addresses))
-      time.sleep(10)
+      self.log.info("failed connecting to {}, waiting 15 seconds".format(self.addresses))
+      time.sleep(15)
  
 
   def __connectTo(self, address):
@@ -163,7 +168,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
       # resolve again in case the IP addresss of srvName changed
       srvIP = socket.gethostbyname(srvName)
     except Exception as e:
-      print "open connection failed:", str(e)
+      self.log.verbose("open connection failed:", str(e))
       #self.log.warning("open connection failed", str(e))
       return False
 
@@ -178,7 +183,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     try:
       self.sock.connect((srvIP, int(port)))
     except Exception as e:
-      print "open connection failed:", str(e)
+      self.log.verbose("open connection failed:", str(e))
       #self.log.debug("open connection failed", str(e))
       self.__close()
       return False
@@ -191,18 +196,15 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
       while len(resp) < 4:
         resp_data = self.sock.recv(4-len(resp))
         if len(resp_data) == 0:
-          print "open connection failed:", "connection closed by LogCollector "+address
+          self.log.verbose("open connection failed:", "connection closed by logCollector "+address)
           #self.log.debug()
           return False
         resp += resp_data
       if resp == bytearray('DLCS'):
-        print "connection open to " + address
-        #self.log.info("connection open to " + address)
         return True
-      #self.log.debug("open connection failed", "invalid handshake from "+address)
+      self.log.debug("open connection failed", "invalid handshake from "+address)
     except Exception as e:
-      print "open connection failed:", str(e)
-      #self.log.debug("open connection failed", str(e))
+      self.log.verbose("open connection failed", str(e))
       pass
     self.__close()
     return False
