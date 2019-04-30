@@ -1,7 +1,7 @@
 #!/usr/bin/env python2
 
 from LogCollectorHandler import LogCollectorHandler
-from LogCollectorLogger import gLogger, Logger
+from LogCollectorLogger import gLogger, Logger, LogLevels
 from datetime import datetime
 import traceback
 import argparse
@@ -25,7 +25,7 @@ if __name__ == '__main__':
   args.addresses = ','.join([a for a in [a.strip() for a in args.addresses.split(",")] if a != ""])
 
   try:
-    lch = LogCollectorHandler(args.addresses, "pki/key.pem", "pki/crt.pem", "pki/cas.pem")
+    lch = LogCollectorHandler(args.addresses, "pki/key.pem", "pki/crt.pem", "pki/cas.pem", LogLevels.getLevelValue("INFO"))
     gLogger.addHandler(lch, Logger.DEBUG)
 
     handler = logging.StreamHandler(sys.stdout)

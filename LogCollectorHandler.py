@@ -5,7 +5,10 @@ LogCollector handler
 # This file is for testing the LogCollectorHandler outside of Dirac.
 # When modified make sure the class is identical to the LogCollectonHandler
 # class in LogCollectorBackend.py which is the file used in Dirac.
-# The main program for testing is LogCollectorClient.py.
+# Use LogCollectorClient.py to test the LogCollectorHandler:
+#     $ ./LogCollectorClient.py -a marc.in2p3.fr:3000
+# Requires that python-json-logger is installed:
+#     $ pip2 install python-json-logger
 
 from LogCollectorLogger import gLogger
 
@@ -27,7 +30,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
   This handler requires that the formatter is the JsonFormatter.
   """
 
-  def __init__(self, addresses, privKey, certif, caCerts) :
+  def __init__(self, addresses, privKey, certif, caCerts, minLevel) :
     """
     Initialization of the LogCollectorHandler.
 
@@ -37,6 +40,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     :param privKey   : string file name of the PEM encoded private key of the client.
     :param certif    : string file name of the PEM encoded certificate of the client.
     :param caCerts   : string file name of the PEM encoded certificate authority list to check the server.
+    :param minLevel  : integer number of minimum log level accepted by this handler. 
     """
     logging.Handler.__init__(self)
     threading.Thread.__init__(self, name="LogCollectorHandler")
@@ -45,6 +49,8 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     self.privKey = privKey
     self.certif  = certif
     self.caCerts = caCerts
+    self.minLevel = minLevel
+    self.level = minLevel
     self.log = gLogger.getSubLogger('LogCollectorBackend')
     self.sock = None
     self.msgQueue = list()  # json encoded messages to send
@@ -57,18 +63,24 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     self.daemon = True
     self.start()
 
+  def setLevel(self, level):
+    """
+    Set the logging level of this handler, but not below self.minLevel.
+    """
+    self.level = level if level > self.minLevel else self.minLevel
 
   def emit(self, record):
     """
     Queue the record for asynchronous sending to the LogCollector.
 
-    The oldest logging message in the queue is dropped when the queue ovorflows.
+    The oldest logging message in the queue is dropped when the queue overflows.
 
     :params record: log record object
     """
     # skip log records emitted by the LogCollectorBackend to avoid endless loops
     if hasattr(record, 'customname') and record.customname.endswith('LogCollectorBackend'):
       return
+    print "handler level:", self.level, "record level:", record.levelno
     self.queueCond.acquire()
     self.msgQueue.insert(0, self.format(record))
     if len(self.msgQueue) + len(self.msgToAck) > self.maxNbrMsg:
@@ -76,7 +88,6 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
       self.queueCond.release()
       self.log.verbose("queue is full, drop message: "+jmsg)
       self.queueCond.acquire()
-    #print "emit: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
     self.queueCond.notifyAll()
     self.queueCond.release()
 
@@ -123,14 +134,11 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
             self.queueCond.acquire()
             self.__resetConnection()
             continue
-          #print "read: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck), "acks len:", len(acks), "before pop"
-          for a in acks:
+          for _ in acks:
             self.msgToAck.pop()
-          #print "read: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck), "acks len:", len(acks), "after pop"
 
         if writable:
           try:
-            #print "send: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck), "packet len:", len(self.packet.getvalue())
             self.sock.sendall(self.packet.getvalue())
             self.__clearPacket()
           except Exception as e:
@@ -169,7 +177,6 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
       srvIP = socket.gethostbyname(srvName)
     except Exception as e:
       self.log.verbose("open connection failed:", str(e))
-      #self.log.warning("open connection failed", str(e))
       return False
 
     self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -184,20 +191,17 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
       self.sock.connect((srvIP, int(port)))
     except Exception as e:
       self.log.verbose("open connection failed:", str(e))
-      #self.log.debug("open connection failed", str(e))
       self.__close()
       return False
     self.sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
     self.sock.settimeout(30)
     try:
-      version = 0
       self.sock.send(bytearray('DLC\x00')) # protocol version 0
       resp = self.sock.recv(4)
       while len(resp) < 4:
         resp_data = self.sock.recv(4-len(resp))
         if len(resp_data) == 0:
           self.log.verbose("open connection failed:", "connection closed by logCollector "+address)
-          #self.log.debug()
           return False
         resp += resp_data
       if resp == bytearray('DLCS'):
@@ -226,7 +230,6 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
       self.packet.write(jMsg)
       self.msgToAck.insert(0, jMsg)
       self.msgQueue.pop()
-      #print "pack: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
     return True
   
 
@@ -243,7 +246,6 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     self.msgQueue.extend(self.msgToAck)
     self.msgToAck = list()
     self.__clearPacket()
-    #print "reset: queue len:", len(self.msgQueue), "toAck len:", len(self.msgToAck)
     self.__close()
 
 

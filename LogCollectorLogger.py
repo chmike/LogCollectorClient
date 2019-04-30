@@ -71,3 +71,27 @@ class Logger(object):
 
 
 gLogger = Logger()
+
+class LogLevels(object):
+
+  DEBUG = logging.DEBUG
+  VERBOSE = 15
+  INFO = logging.INFO
+  WARN = logging.WARN
+  NOTICE = 35
+  ERROR = logging.ERROR
+  ALWAYS = 45
+  FATAL = logging.CRITICAL
+
+  __levelDict = {"DEBUG": DEBUG,
+                 "VERBOSE": VERBOSE,
+                 "INFO": INFO,
+                 "WARN": WARN,
+                 "NOTICE": NOTICE,
+                 "ERROR": ERROR,
+                 "ALWAYS": ALWAYS,
+                 "FATAL": FATAL}
+
+  @classmethod
+  def getLevelValue(cls, sName):
+    return cls.__levelDict.get(sName.upper())
