@@ -82,7 +82,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     # skip log records emitted by the LogCollectorBackend to avoid endless loops
     if hasattr(record, 'customname') and record.customname.endswith('LogCollectorBackend'):
       return
-    print "handler level:", self.level, "record level:", record.levelno
+    #print "handler level:", self.level, "record level:", record.levelno
     self.queueCond.acquire()
     self.msgQueue.insert(0, self.format(record))
     if len(self.msgQueue) + len(self.msgToAck) > self.maxNbrMsg:
@@ -96,6 +96,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
 
   def run(self):
     self.queueCond.acquire()
+    self.log.info("start LogCollector thread")
     while (1):
       while len(self.msgQueue) == 0:
         self.queueCond.wait(5)  # TODO: check if the 5 sec timeout is needed
