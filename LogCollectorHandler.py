@@ -64,11 +64,13 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     self.daemon = True
     self.start()
 
+
   def setLevel(self, level):
     """
     Set the logging level of this handler, but not below self.minLevel.
     """
     self.level = level if level > self.minLevel else self.minLevel
+
 
   def emit(self, record):
     """

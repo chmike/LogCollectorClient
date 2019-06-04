@@ -13,6 +13,8 @@ from DIRAC.FrameworkSystem.private.standardLogging.Formatter.JsonFormatter impor
 from DIRAC.Core.Security.Locations import getCAsLocation, getHostCertificateAndKeyLocation
 from DIRAC import gLogger
 
+from collections import deque
+
 import threading
 import datetime
 import logging
@@ -55,8 +57,8 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     self.level = minLevel
     self.log = gLogger.getSubLogger('LogCollectorBackend')
     self.sock = None
-    self.msgQueue = list()  # json encoded messages to send
-    self.msgToAck = list()  # json encoded messages waiting acknowledgement
+    self.msgQueue = deque()  # json encoded messages to send
+    self.msgToAck = deque()  # json encoded messages waiting acknowledgement
     self.maxNbrMsg = 10000  # max number of messages in queue + toAck
     self.queueCond = threading.Condition()
     self.packet = io.BytesIO()
@@ -65,11 +67,13 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     self.daemon = True
     self.start()
 
+
   def setLevel(self, level):
     """
     Set the logging level of this handler, but not below self.minLevel.
     """
     self.level = level if level > self.minLevel else self.minLevel
+
 
   def emit(self, record):
     """
@@ -82,9 +86,8 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     # skip log records emitted by the LogCollectorBackend to avoid endless loops
     if hasattr(record, 'customname') and record.customname.endswith('LogCollectorBackend'):
       return
-    #print "handler level:", self.level, "record level:", record.levelno
     self.queueCond.acquire()
-    self.msgQueue.insert(0, self.format(record))
+    self.msgQueue.appendleft(self.format(record))
     if len(self.msgQueue) + len(self.msgToAck) > self.maxNbrMsg:
       jmsg = self.msgQueue.pop()
       self.queueCond.release()
@@ -96,7 +99,6 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
 
   def run(self):
     self.queueCond.acquire()
-    self.log.info("start LogCollector thread")
     while (1):
       while len(self.msgQueue) == 0:
         self.queueCond.wait(5)  # TODO: check if the 5 sec timeout is needed
@@ -226,13 +228,12 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     if len(self.msgQueue) == 0:
       return self.packet.tell() != 0
     while len(self.msgQueue) > 0 and self.maxPktLen - self.packet.tell() >= 7 + len(self.msgQueue[-1]):
-      jMsg = self.msgQueue[-1]
+      jMsg = self.msgQueue.pop()
       self.packet.write('DLCM')
       self.packet.write(struct.pack('<I',len(jMsg)+1))
       self.packet.write('J')
       self.packet.write(jMsg)
-      self.msgToAck.insert(0, jMsg)
-      self.msgQueue.pop()
+      self.msgToAck.appendleft(jMsg)
     return True
   
 
