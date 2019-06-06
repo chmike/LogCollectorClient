@@ -98,6 +98,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
 
 
   def run(self):
+    self.log.info("start LogCollector thread")
     self.queueCond.acquire()
     while (1):
       while len(self.msgQueue) == 0:
