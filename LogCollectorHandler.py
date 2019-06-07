@@ -246,7 +246,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     Requires queueCond is acquired.
     """
     self.msgQueue.extend(self.msgToAck)
-    self.msgToAck = list()
+    self.msgToAck = deque()
     self.__clearPacket()
     self.__close()
 
