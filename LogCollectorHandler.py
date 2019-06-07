@@ -31,7 +31,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
   This handler requires that the formatter is the JsonFormatter.
   """
 
-  def __init__(self, addresses, privKey, certif, caCerts, minLevel) :
+  def __init__(self, addresses, privKey, certif, caCerts, minLevel, name) :
     """
     Initialization of the LogCollectorHandler.
 
@@ -42,6 +42,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     :param certif    : string file name of the PEM encoded certificate of the client.
     :param caCerts   : string file name of the PEM encoded certificate authority list to check the server.
     :param minLevel  : integer number of minimum log level accepted by this handler. 
+    :param name      : string client name to pass in connection init.
     """
     logging.Handler.__init__(self)
     threading.Thread.__init__(self, name="LogCollectorHandler")
@@ -52,6 +53,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     self.caCerts = caCerts
     self.minLevel = minLevel
     self.level = minLevel
+    self.name = name
     self.log = gLogger.getSubLogger('LogCollectorBackend')
     self.sock = None
     self.msgQueue = deque()  # json encoded messages to send
@@ -199,7 +201,12 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     self.sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
     self.sock.settimeout(30)
     try:
-      self.sock.send(bytearray('DLC\x00')) # protocol version 0
+      name = bytearray(self.name, 'utf-8')
+      initMsg = io.BytesIO()
+      initMsg.write(struct.pack('<I',len(name)))
+      initMsg.write(name)
+      self.sock.send(bytearray('DLC\x01')) # protocol version 1
+      self.sock.sendall(initMsg.getvalue())
       resp = self.sock.recv(4)
       while len(resp) < 4:
         resp_data = self.sock.recv(4-len(resp))
