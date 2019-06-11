@@ -23,8 +23,10 @@ import select
 import struct
 import time
 import ssl
+import sys
 import io
 import os
+import re
 
 
 class LogCollectorHandler(logging.Handler, threading.Thread):
@@ -290,7 +292,21 @@ class LogCollectorBackend(AbstractBackend):
     self.__minLevel = 0
     self.__caCertsFile = ""
     self.__name = "LogCollectorBackend"
-
+    # get positional command line arguments
+    posArgs = []
+    for arg in sys.argv:
+      if len(arg) > 0 and arg[0] != '-':
+        posArgs.append(arg)
+    print sys.argv
+    print posArgs
+    # get process type and name from command line arguments
+    if len(posArgs) >= 2:
+        p = re.compile("dirac-([a-zA-Z0-9]+).py")
+        m = p.search(posArgs[0])
+        if m is None:
+          self.__name = "???:"+posArgs[1]
+        else:
+          self.__name = m.group(1)+":"+posArgs[1]
 
   def createHandler(self, parameters=None):
     """
