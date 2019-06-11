@@ -297,8 +297,6 @@ class LogCollectorBackend(AbstractBackend):
     for arg in sys.argv:
       if len(arg) > 0 and arg[0] != '-':
         posArgs.append(arg)
-    print sys.argv
-    print posArgs
     # get process type and name from command line arguments
     if len(posArgs) >= 2:
         p = re.compile("dirac-([a-zA-Z0-9]+).py")
