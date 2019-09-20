@@ -90,6 +90,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     # skip log records emitted by the LogCollectorBackend to avoid endless loops
     if hasattr(record, 'customname') and record.customname.endswith('LogCollectorBackend'):
       return
+    record.utime = int(round(time.time()*1000000))
     self.queueCond.acquire()
     self.msgQueue.appendleft(self.format(record))
     if len(self.msgQueue) + len(self.msgToAck) > self.maxNbrMsg:
