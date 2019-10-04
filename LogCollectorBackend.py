@@ -293,6 +293,7 @@ class LogCollectorBackend(AbstractBackend):
     self.__minLevel = 0
     self.__caCertsFile = ""
     self.__name = "LogCollectorBackend"
+    self._handler = None
     # get positional command line arguments
     posArgs = []
     for arg in sys.argv:
@@ -353,4 +354,5 @@ class LogCollectorBackend(AbstractBackend):
 
     :params level: integer the logging level value to set.
     """
-    self._handler.setLevel(level)
+    if self._handler is not None:
+        self._handler.setLevel(level)
