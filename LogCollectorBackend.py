@@ -354,6 +354,9 @@ class LogCollectorBackend(AbstractBackend):
       self.__certFile = self.__certKeyFiles[0]
       self.__keyFile = self.__certKeyFiles[1]
 
+    if not enabled:
+      gLogger.error("LogCollectorBackend is not enabled")
+
     self._handler = LogCollectorHandler(
       self.__LogCollectorAddress, 
       self.__keyFile, 
