@@ -25,7 +25,7 @@ if __name__ == '__main__':
   args.addresses = ','.join([a for a in [a.strip() for a in args.addresses.split(",")] if a != ""])
 
   try:
-    lch = LogCollectorHandler(args.addresses, "pki/key.pem", "pki/crt.pem", "pki/cas.pem", LogLevels.getLevelValue("INFO"), "LogCollectorClient")
+    lch = LogCollectorHandler(args.addresses, "pki/key.pem", "pki/crt.pem", "pki/cas.pem", LogLevels.getLevelValue("INFO"), "LogCollectorClient", True)
     gLogger.addHandler(lch, Logger.DEBUG)
 
     handler = logging.StreamHandler(sys.stdout)

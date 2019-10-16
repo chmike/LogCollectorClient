@@ -36,7 +36,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
   This handler requires that the formatter is the JsonFormatter.
   """
 
-  def __init__(self, addresses, privKey, certif, caCerts, minLevel, name) :
+  def __init__(self, addresses, privKey, certif, caCerts, minLevel, name, enabled) :
     """
     Initialization of the LogCollectorHandler.
 
@@ -48,6 +48,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     :param caCerts   : string file name of the PEM encoded certificate authority list to check the server.
     :param minLevel  : integer number of minimum log level accepted by this handler. 
     :param name      : string client name to pass in connection init.
+    :param enabled   : bool set to True if the handler is enabled.
     """
     logging.Handler.__init__(self)
     threading.Thread.__init__(self, name="LogCollectorHandler")
@@ -59,6 +60,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     self.minLevel = minLevel
     self.level = minLevel
     self.name = name
+    self.enabled = enabled
     self.log = gLogger.getSubLogger('LogCollectorBackend')
     self.sock = None
     self.msgQueue = deque()  # json encoded messages to send
@@ -87,6 +89,8 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
 
     :params record: log record object
     """
+    if not self.enabled:
+        return
     # skip log records emitted by the LogCollectorBackend to avoid endless loops
     if hasattr(record, 'customname') and record.customname.endswith('LogCollectorBackend'):
       return
@@ -291,6 +295,8 @@ class LogCollectorBackend(AbstractBackend):
     super(LogCollectorBackend, self).__init__(None, JsonFormatter)
     self.__LogCollectorAddress = 'localhost:3000'
     self.__minLevel = 0
+    self.__certFile = "certFile"
+    self.__keyFile = "keyFile"
     self.__caCertsFile = ""
     self.__name = "LogCollectorBackend"
     self._handler = None
@@ -314,11 +320,16 @@ class LogCollectorBackend(AbstractBackend):
 
     :params parameters: dictionary of parameters. ex: {'FileName': file.log}
     """
-    if parameters is not None:
+    enabled = True
+    if parameters is None:
+      enabled = False
+      gLogger.warning("LogCollectorBackend: parameters is None")
+    else:
       self.__LogCollectorAddress = parameters.get("LogCollectorAddress", self.__LogCollectorAddress)
       self.__caCertsFile = parameters.get('caCertsFile', self.__caCertsFile)
       try:
-        self.__minLevel = LogLevels.getLevelValue(parameters.get('minimumLogLevel', "INFO"))
+        minLevel = parameters.get('minimumLogLevel', "INFO")
+        self.__minLevel = LogLevels.getLevelValue(minLevel)
       except:
         pass
 
@@ -328,25 +339,29 @@ class LogCollectorBackend(AbstractBackend):
       self.__caCertsFile = getCAsLocation()
       if self.__caCertsFile == False:
         gLogger.error("can't locate the CA certs directory")
-        return
-      self.__caCertsFile += "/cas.pem"
+        enabled = False
+      else:
+        self.__caCertsFile += "/cas.pem"
     if not os.path.isfile(self.__caCertsFile):
         gLogger.error("caCertsFile '"+self.__caCertsFile+"' doesn't exist or is not a regular file")
-        return
+        enabled = False
 
     self.__certKeyFiles = getHostCertificateAndKeyLocation()
     if self.__certKeyFiles == False:
       gLogger.error("can't locate the host certificate and private key files")
-      return
-    self.__certFile = self.__certKeyFiles[0]
-    self.__keyFile = self.__certKeyFiles[1]
+      enabled = False
+    else:
+      self.__certFile = self.__certKeyFiles[0]
+      self.__keyFile = self.__certKeyFiles[1]
+
     self._handler = LogCollectorHandler(
       self.__LogCollectorAddress, 
       self.__keyFile, 
       self.__certFile, 
       self.__caCertsFile, 
       self.__minLevel,
-      self.__name)
+      self.__name,
+      enabled)
 
   def setLevel(self, level):
     """

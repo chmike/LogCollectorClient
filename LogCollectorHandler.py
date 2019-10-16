@@ -31,7 +31,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
   This handler requires that the formatter is the JsonFormatter.
   """
 
-  def __init__(self, addresses, privKey, certif, caCerts, minLevel, name) :
+  def __init__(self, addresses, privKey, certif, caCerts, minLevel, name, enabled) :
     """
     Initialization of the LogCollectorHandler.
 
@@ -43,6 +43,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     :param caCerts   : string file name of the PEM encoded certificate authority list to check the server.
     :param minLevel  : integer number of minimum log level accepted by this handler. 
     :param name      : string client name to pass in connection init.
+    :param enabled   : bool set to True if the handler is enabled.
     """
     logging.Handler.__init__(self)
     threading.Thread.__init__(self, name="LogCollectorHandler")
@@ -54,6 +55,7 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
     self.minLevel = minLevel
     self.level = minLevel
     self.name = name
+    self.enabled = enabled
     self.log = gLogger.getSubLogger('LogCollectorBackend')
     self.sock = None
     self.msgQueue = deque()  # json encoded messages to send
@@ -82,6 +84,8 @@ class LogCollectorHandler(logging.Handler, threading.Thread):
 
     :params record: log record object
     """
+    if not self.enabled:
+        return
     # skip log records emitted by the LogCollectorBackend to avoid endless loops
     if hasattr(record, 'customname') and record.customname.endswith('LogCollectorBackend'):
       return
